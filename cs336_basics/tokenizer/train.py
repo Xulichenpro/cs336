@@ -1,4 +1,5 @@
 import regex as re
+import multiprocessing as mp
 
 from pathlib import Path
 from multiprocessing import Pool
@@ -36,18 +37,20 @@ def train_bpe(
             chunk = f.read(end - start).decode("utf-8", errors="ignore")
             #print(chunk)
             #print(_split_by_special_tokens(chunk,SPECIAL_TOKENS))
-            chunks.extend(_split_by_special_tokens(chunk,special_tokens))
+            chunks.append(chunk)
     #print(chunks)
     stats_cache_list = []
     start = 0
-    while start < len(chunks):
-        with Pool(num_processes) as pool:
-            stats_cache_list = pool.starmap(
-                _pretokenize,
-                [(chunks[start + i] if start + i < len(chunks) else "",) 
-                 for i in range(num_processes)]
-            )
-        start += num_processes
+    ctx = mp.get_context("spawn")
+    
+    with ctx.Pool(num_processes) as pool:
+        new_stats_cache_list = pool.starmap(
+            pretokenize,
+            [(chunk,) 
+                for chunk in chunks]
+        )
+        stats_cache_list.extend(new_stats_cache_list)
+
     stats_cache_list = [(stats,cache) for stats,cache in stats_cache_list if stats]
 
     for stats,cache in stats_cache_list:
@@ -57,9 +60,9 @@ def train_bpe(
             global_cache[bytes_stream] = global_cache.get(bytes_stream,0) + cnt
            
     
-        print("---------------")
-        print(f"stats:{stats}")
-        print(f"cache:{cache}")
+        # print("---------------")
+        # print(f"stats:{stats}")
+        # print(f"cache:{cache}")
     print(global_stats)
     print(global_cache)
 
@@ -86,38 +89,54 @@ def train_bpe(
         
         for bytes_stream in iter:
             if merged_pair not in zip(list(bytes_stream),list(bytes_stream)[1:]) : 
-                print(f"no{bytes_stream}")
+                # print(f"no{bytes_stream}")
                 continue
 
             cnt = global_cache[bytes_stream]
             old_bytes_stream = list(bytes_stream)
             bytes_stream = merge(old_bytes_stream,merged_pair,token_id)
             
-            print(old_bytes_stream)
+            # print(old_bytes_stream)
             print(f"new :{bytes_stream}")
             for i,id in enumerate(bytes_stream):
                 if token_id != id : continue
                 if i >= 1 :
                     global_stats[(bytes_stream[i - 1],token_id)] = cnt + global_stats.get((bytes_stream[i - 1],token_id),0)
                     global_stats[(bytes_stream[i - 1],merged_pair[0])] -= cnt
-                    
+                    if global_stats[(bytes_stream[i - 1],merged_pair[0])] == 0:
+                        del global_stats[(bytes_stream[i - 1],merged_pair[0])]
                 if i <= len(bytes_stream) - 2:
                     global_stats[(token_id,bytes_stream[i + 1])] = cnt + global_stats.get((token_id,bytes_stream[i + 1]),0)
                     global_stats[(merged_pair[1],bytes_stream[i + 1])] -= cnt
+                    if global_stats[(merged_pair[1],bytes_stream[i + 1])] == 0:
+                        del global_stats[(merged_pair[1],bytes_stream[i + 1])] 
             print(global_stats)      
             new_cache[tuple(bytes_stream)] = new_cache.get(tuple(bytes_stream),0) + cnt
             del global_cache[tuple(old_bytes_stream)]
         global_cache.update(new_cache)
-        
+        print(global_cache)
         del global_stats[merged_pair]
               
         #break
-    for id,token_id in enumerate(range(vocab_size - len(special_tokens),vocab_size)):
+    for id,token_id in enumerate(range(len(token2bytes),len(token2bytes) + len(special_tokens))):
         token2bytes[token_id] = special_tokens[id].encode("utf-8")
 
     return token2bytes,merges
 
-def _pretokenize(chunk:str):
+def pretokenize(text:str):
+    texts = _split_by_special_tokens(text,special_tokens=SPECIAL_TOKENS)
+    stats = {}
+    cache = {}
+    print(texts)
+    for piece in texts:
+        s, c = single_pretokenize(piece)
+        for pair, cnt in s.items():
+            stats[pair] = stats.get(pair, 0) + cnt
+        for bs, cnt in c.items():
+            cache[bs] = cache.get(bs, 0) + cnt
+    return stats, cache
+
+def single_pretokenize(chunk:str):
     stats = {}
     cache = {}
     match_iter =  re.finditer(PAT,chunk)
@@ -131,14 +150,16 @@ def _split_by_special_tokens(text:str,special_tokens:list[str] = None) -> list[s
         return [text]
     pattern = '(' + '|'.join(re.escape(s) for s in special_tokens) + ')'
     texts = re.split(pattern, text)
+    #print(texts)
     texts = [t for t in texts if t and t not in special_tokens]
     return texts
 
 def main():
     #chunk = 'aabbccddeeffgg aa'
     #print(_pretokenize(chunk))
-    token2bytes,merges = train_bpe(FILE_PATH,100 + LEVEL,SPECIAL_TOKENS)
+    token2bytes,merges = train_bpe(FILE_PATH,10000,SPECIAL_TOKENS)
     print(token2bytes)
 
 if __name__ == "__main__":
+    mp.freeze_support()
     main()
