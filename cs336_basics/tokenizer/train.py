@@ -6,7 +6,7 @@ from multiprocessing import Pool
 from .bpe import updated_stats,merge
 from .pretokenizer import find_chunk_boundaries
 
-FILE_PATH = Path(__file__).parent / "test.txt"
+FILE_PATH = Path(__file__).parent.parent / "data/TinyStoriesV2-GPT4-train.txt"
 SPECIAL_TOKENS = ["<|endoftext|>"]
 
 
