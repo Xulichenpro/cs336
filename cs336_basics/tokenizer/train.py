@@ -6,7 +6,7 @@ from multiprocessing import Pool
 from .bpe import updated_stats,merge
 from .pretokenizer import find_chunk_boundaries
 
-FILE_PATH = Path(__file__).parent.parent / "data/TinyStoriesV2-GPT4-train.txt"
+FILE_PATH = Path(__file__).parent / "test.txt"
 SPECIAL_TOKENS = ["<|endoftext|>"]
 
 
@@ -17,9 +17,9 @@ def train_bpe(
         input_path:str,
         vocab_size:int,
         special_tokens:list[str],
-        num_processes = 10,
+        num_processes = 8,
 ) -> tuple[dict[int,bytes],list[tuple[bytes,bytes]]]:
-    assert vocab_size > LEVEL,"unvalid vocab size"
+    assert vocab_size >= LEVEL + 1,"unvalid vocab size"
 
     chunks = []
     global_stats = {}
@@ -45,18 +45,20 @@ def train_bpe(
     for stats,cache in stats_cache_list:
         for pair,cnt in stats.items():
             global_stats[pair] = global_stats.get(pair,0) + cnt
-        for pair,index in cache.items():
-            global_cache[pair] = global_cache.get(pair,{})
-            for subpair,cnt in index.items():
-                global_cache[pair][subpair] = global_cache[pair].get(subpair,0) + cnt
+        for bytes_stream,cnt in cache.items():
+            global_cache[bytes_stream] = global_cache.get(bytes_stream,0) + cnt
+           
     
-    #     print("---------------")
-    #     print(f"stats:{stats}")
-    #     print(f"cache:{cache}")
-    # print(global_stats)
-    # print(global_cache)
+        print("---------------")
+        print(f"stats:{stats}")
+        print(f"cache:{cache}")
+    print(global_stats)
+    print(global_cache)
 
-    for token_id in range(LEVEL + 1,vocab_size + 1):
+    for token_id in range(LEVEL + 1,vocab_size - len(special_tokens)):
+        if not global_stats:
+            break
+
         merged_pair = max(
             global_stats,
             key = lambda pair : (
@@ -69,32 +71,42 @@ def train_bpe(
         token2bytes[token_id] = new_bytes
         bytes2token[new_bytes] = token_id
         merges.append((token2bytes[merged_pair[0]],token2bytes[merged_pair[1]]))
-        index = global_cache[merged_pair]
-        #print(list(merged_pair))
+        
+        print(list(merged_pair))
+        new_cache = {}
+        iter = list(global_cache.keys())
+        
+        for bytes_stream in iter:
+            if merged_pair not in zip(list(bytes_stream),list(bytes_stream)[1:]) : 
+                print(f"no{bytes_stream}")
+                continue
 
-        for bytes_stream,cnt in index.items():
+            cnt = global_cache[bytes_stream]
             old_bytes_stream = list(bytes_stream)
             bytes_stream = merge(old_bytes_stream,merged_pair,token_id)
+            
+            print(old_bytes_stream)
+            print(f"new :{bytes_stream}")
             for i,id in enumerate(bytes_stream):
                 if token_id != id : continue
                 if i >= 1 :
                     global_stats[(bytes_stream[i - 1],token_id)] = cnt + global_stats.get((bytes_stream[i - 1],token_id),0)
-                    global_cache[(bytes_stream[i - 1],token_id)] = global_cache.get((bytes_stream[i - 1],token_id),{})
-                    global_cache[(bytes_stream[i - 1],token_id)][tuple(bytes_stream)] = global_cache[(bytes_stream[i - 1],token_id)].get(tuple(bytes_stream),0) + cnt
-                
                     global_stats[(bytes_stream[i - 1],merged_pair[0])] -= cnt
-                    global_cache[(bytes_stream[i - 1],merged_pair[0])][tuple(old_bytes_stream)] -=cnt
+                    
                 if i <= len(bytes_stream) - 2:
                     global_stats[(token_id,bytes_stream[i + 1])] = cnt + global_stats.get((token_id,bytes_stream[i + 1]),0)
-                    global_cache[(token_id,bytes_stream[i + 1])] = global_cache.get((token_id,bytes_stream[i + 1]),{})
-                    global_cache[(token_id,bytes_stream[i + 1])][tuple(bytes_stream)] = global_cache[(token_id,bytes_stream[i + 1])].get(tuple(bytes_stream),0) + cnt
-                
                     global_stats[(merged_pair[1],bytes_stream[i + 1])] -= cnt
-                    global_cache[(merged_pair[1],bytes_stream[i + 1])][tuple(old_bytes_stream)] -=cnt
+            print(global_stats)      
+            new_cache[tuple(bytes_stream)] = new_cache.get(tuple(bytes_stream),0) + cnt
+            del global_cache[tuple(old_bytes_stream)]
+        global_cache.update(new_cache)
+        
         del global_stats[merged_pair]
-        del global_cache[merged_pair]       
+              
         #break
-    
+    for id,token_id in enumerate(range(vocab_size - len(special_tokens),vocab_size)):
+        token2bytes[token_id] = special_tokens[id].encode("utf-8")
+
     return token2bytes,merges
 
 def _pretokenize(chunk:str):
@@ -118,6 +130,7 @@ def main():
     #chunk = 'aabbccddeeffgg aa'
     #print(_pretokenize(chunk))
     token2bytes,merges = train_bpe(FILE_PATH,100 + LEVEL,SPECIAL_TOKENS)
+    print(token2bytes)
 
 if __name__ == "__main__":
     main()

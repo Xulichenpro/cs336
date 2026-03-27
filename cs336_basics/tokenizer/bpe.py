@@ -3,9 +3,9 @@ from pathlib import Path
 def updated_stats(stats:dict[tuple,int],bytes_stream:list,cache:dict[tuple,dict] = None) -> dict[tuple,int]:
     for id,(px,py) in enumerate(zip(bytes_stream,bytes_stream[1:])):
         stats[(px,py)] = stats.get((px,py),0) + 1
-        if cache is not None:
-            cache[(px,py)] = cache.get((px,py),{})
-            cache[(px,py)][tuple(bytes_stream)] = cache[(px,py)].get(tuple(bytes_stream),0) + 1
+    
+    if cache is not None:
+        cache[tuple(bytes_stream)] = cache.get(tuple(bytes_stream),0) + 1
     
     return stats,cache
 
