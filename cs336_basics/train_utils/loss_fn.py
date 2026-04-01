@@ -12,5 +12,5 @@ def cross_entropy(
     suboutput = (input[torch.arange(input.shape[-2]),target] - input[torch.arange(input.shape[-2]),indices]) - suboutput
     output = suboutput.sum() / input.shape[-2]
     output.data = -output.data
-    print(output)
+
     return output
