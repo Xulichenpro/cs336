@@ -182,6 +182,7 @@ def main():
                     )
 
                     val_loss += cross_entropy(pred,y).item()
+                val_loss /= eval_iters
                 ppl = torch.exp(torch.tensor(val_loss)).item()
 
                 logger.info(
