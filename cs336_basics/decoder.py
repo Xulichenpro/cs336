@@ -1,9 +1,9 @@
 import torch
 import torch.nn.functional as F
 
-from .lm import TransformerLM
-from .rope_block import RoPE
-from .attention_block import softmax
+from block.lm import TransformerLM
+from block.rope_block import RoPE
+from block.attention_block import softmax
 
 END = '<|endoftext|>'
 

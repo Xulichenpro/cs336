@@ -1,0 +1,39 @@
+batch_size: 64
+context_length: 256
+max_grad_norm: 100
+eval_interval: 100
+eval_iters: 50
+
+train_bpe:
+  vocab_size: 10000
+  special_tokens:
+    - "<|endoftext|>"
+  num_processes: 16
+
+data_loader:
+  context_length: 256
+  batch_size: 64
+
+TransformerLM:
+  vocab_size: 10000
+  context_length: 256
+  num_layers: 4
+  d_model: 512
+  num_heads: 16
+  d_ff: 1344
+
+RoPE:
+  theta: 10000
+  d_k: 32
+  max_seq_len: 256
+
+AdamW:
+  lr: 1e-5
+  eps: 1e-5
+  weight_decay: 1e-4
+
+lr_schedule:
+  alpha_max: 1e-5
+  alpha_min: 1e-6
+  T_omiga: 10000
+  T_c: 20000

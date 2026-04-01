@@ -38,7 +38,7 @@ class SWIglu(nn.Module):
         )
 
     def forward(self,x:torch.Tensor) -> torch.Tensor:
-        w1x = self.linear_unit1.forward(x)
+        w1x = self.linear_unit1(x)
         return self.linear_unit2(
-            self.linear_unit3.forward(x) * (w1x * torch.sigmoid(w1x))
+            self.linear_unit3(x) * (w1x * torch.sigmoid(w1x))
         )

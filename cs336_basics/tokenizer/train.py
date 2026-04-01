@@ -1,3 +1,4 @@
+import os
 import regex as re
 import multiprocessing as mp
 
@@ -5,9 +6,11 @@ from pathlib import Path
 from multiprocessing import Pool
 
 from .bpe import updated_stats,merge
+from .serialize_bpe import save_pkl
 from .pretokenizer import find_chunk_boundaries
 
 FILE_PATH = Path(__file__).parent.parent / "data/TinyStoriesV2-GPT4-train.txt"
+VOCAB_SIZE = 10000
 SPECIAL_TOKENS = ["<|endoftext|>"]
 
 
@@ -142,7 +145,11 @@ def _split_by_special_tokens(text:str,special_tokens:list[str] = None) -> list[s
     return texts
 
 def main():
-    token2bytes,merges = train_bpe(FILE_PATH,10000,SPECIAL_TOKENS)
+    model_dir = Path(__file__).parent.parent / "model"
+    model_dir.mkdir(parents=True,exist_ok=True)
+    token2bytes,merges = train_bpe(FILE_PATH,VOCAB_SIZE,SPECIAL_TOKENS)
+    save_pkl(token2bytes,'vocab',model_dir / "vocab.pkl")
+    save_pkl(merges,'merges', model_dir / 'merges.pkl')
 
 if __name__ == "__main__":
     mp.freeze_support()

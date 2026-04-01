@@ -8,15 +8,8 @@ def data_loader(
     device:str
 ) -> torch.Tensor:
     size = dataset.size
-    token_input =[]   
-    token_target = []
-
-    for i in range(size - context_length):
-        token_input.append(torch.from_numpy(dataset[i:i + context_length]).to(device))
-        token_target.append(torch.from_numpy(dataset[i + 1:i + 1 + context_length]).to(device))
-
-    input =  torch.stack(token_input,dim = 0)
-    target = torch.stack(token_target,dim = 0)
     indices = torch.randperm(size - context_length)[:batch_size]
+    token_input  = torch.stack([torch.from_numpy(dataset[i : i + context_length])     for i in indices])
+    token_target = torch.stack([torch.from_numpy(dataset[i + 1 : i + 1 + context_length]) for i in indices])
 
-    return input[indices],target[indices]
+    return token_input.to(device), token_target.to(device)

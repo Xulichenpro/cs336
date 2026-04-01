@@ -57,13 +57,13 @@ class TransformerLM(nn.Module):
         )
 
     def forward(self,x:torch.Tensor,rope:RoPE = None) -> torch.Tensor:
-        sub_output = self.embedding.forward(x)
+        sub_output = self.embedding(x)
 
         for num_layer in range(self.num_layers):
-            sub_output = self.trans_blocks[num_layer].forward(sub_output,rope = rope)
+            sub_output = self.trans_blocks[num_layer](sub_output,rope = rope)
 
-        output = self.lm_head.forward(
-            self.final_rms.forward(sub_output),
+        output = self.lm_head(
+            self.final_rms(sub_output),
         )
 
         return output

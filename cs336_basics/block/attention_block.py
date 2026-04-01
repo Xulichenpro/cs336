@@ -120,7 +120,7 @@ class MultiheadAttention(nn.Module):
             attention,
             "h batch_size seq_len d_v -> batch_size seq_len (h d_v)"
         )
-        return self.WO.forward(attention)
+        return self.WO(attention)
 
 
 

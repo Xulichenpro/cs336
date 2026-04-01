@@ -44,6 +44,6 @@ class Transformer(nn.Module):
         )
     
     def forward(self,x:torch.Tensor,rope:RoPE = None) -> torch.Tensor:
-        sub_out = x + self.multihead.forward(x=self.rms1.forward(x),rope=rope)
-        output = sub_out + self.swiglu.forward(x=self.rms2(sub_out))
+        sub_out = x + self.multihead(x=self.rms1(x),rope=rope)
+        output = sub_out + self.swiglu(x=self.rms2(sub_out))
         return output

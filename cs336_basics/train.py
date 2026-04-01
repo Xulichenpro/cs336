@@ -1,0 +1,210 @@
+import yaml
+import torch
+import logging
+import time
+import numpy as np
+
+from pathlib import Path
+from datetime import datetime
+from einops import rearrange
+
+from .tokenizer.tokenizer import Tokenizer
+from .block.rope_block import RoPE
+from .block.lm import TransformerLM
+from .train_utils.dataloader import data_loader
+from .train_utils.loss_fn import cross_entropy
+from .train_utils.optimizer import AdamW,grad_clipping,learning_rate_schedule
+from .train_utils.checkpoint_utils import save_checkpoint
+
+DATA_DIR = Path(__file__).parent / "data"
+TRAIN_FILE = DATA_DIR / "TinyStoriesV2-GPT4-train.txt"
+TEST_FILE = DATA_DIR / "TinyStoriesV2-GPT4-valid.txt"
+TRAIN_CACHE_FILE = DATA_DIR / "train.bin"
+TEST_CACHE_FILE = DATA_DIR / "test.bin"
+
+MODEL_DIR = Path(__file__).parent / "model"
+VOCAB_PATH = MODEL_DIR / "vocab.pkl"
+MERGES_PATH = MODEL_DIR / "merges.pkl"
+MODEL_DIR.mkdir(exist_ok=True,parents=True)
+
+SPECIAL_TOKENS = ["<|endoftext|>"]
+
+MAX_TOTAL_TOKENS = 327680000
+
+def setup_logger(name: str) -> logging.Logger:
+    log_dir = Path(__file__).parent / "logs"
+    log_dir.mkdir(exist_ok=True, parents=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = log_dir / f"train_{timestamp}.log"
+
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.DEBUG)
+
+    fmt = logging.Formatter(
+        fmt="%(asctime)s | %(levelname)-8s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    # 文件 handler：记录所有级别
+    fh = logging.FileHandler(log_file, encoding="utf-8")
+    fh.setLevel(logging.DEBUG)
+    fh.setFormatter(fmt)
+
+    # 控制台 handler：只显示 INFO 及以上
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.INFO)
+    ch.setFormatter(fmt)
+
+    logger.addHandler(fh)
+    logger.addHandler(ch)
+
+    logger.info(f"Log file: {log_file}")
+    return logger
+
+def lazy_load(
+    file_path:Path,
+    cache_path:Path,
+    tokenizer:Tokenizer,
+    logger: logging.Logger,
+) -> np.memmap:
+    if not cache_path.exists():
+        logger.info(f"✏️  Tokenizing {file_path.name} → {cache_path.name} ...")
+        with open(file_path,'r') as f:
+            text = f.read()
+        tokens = np.array(tokenizer.encode(text))
+        tokens.tofile(cache_path,dtype=np.uint16)
+        logger.info(f"💾 Saved {len(tokens):,} tokens to {cache_path.name}")
+    else:
+        logger.info(f"✅ Cache found: {cache_path.name}")
+    return np.memmap(cache_path, dtype=np.uint16, mode='r')
+
+def main():
+    logger = setup_logger("train")
+
+    hyper_file = Path(__file__).parent / "hyperparam.yml"
+    with open(hyper_file,'r') as f:
+        hyper_params = yaml.safe_load(f)
+
+    logger.info(f"📋 Loaded hyperparams from {hyper_file}")
+    logger.debug(f"Hyperparams: {hyper_params}")  
+
+    batch_size = hyper_params["batch_size"]
+    context_length = hyper_params["context_length"]
+    max_grad_norm = hyper_params["max_grad_norm"]
+    eval_interval  = hyper_params["eval_interval"]
+    eval_iters = hyper_params["eval_iters"]
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    
+    total_steps = MAX_TOTAL_TOKENS // (batch_size * context_length)
+
+    logger.info(f"💻 Device: {device}")
+    logger.info(
+        f"🚀 Total steps: {total_steps:,} "
+        f"(batch={batch_size}, ctx={context_length}, tokens={MAX_TOTAL_TOKENS:,})"
+    )
+   
+    tokenizer = Tokenizer.from_path(VOCAB_PATH,MERGES_PATH,special_tokens=SPECIAL_TOKENS)
+    lm = TransformerLM(
+        device=device,
+        **hyper_params["TransformerLM"],       
+    ).to(device)
+    optimizer = AdamW(
+        params = lm.parameters(),
+        **hyper_params["AdamW"]
+    )
+    rope = RoPE(
+        device=device,
+        **hyper_params["RoPE"]
+    ).to(device)
+
+    n_params = sum(p.numel() for p in lm.parameters() if p.requires_grad)
+    logger.info(f"🧠 Model parameters: {n_params:,}")
+
+    train_data = lazy_load(TRAIN_FILE,TRAIN_CACHE_FILE,tokenizer,logger)
+    test_data = lazy_load(TEST_FILE,TEST_CACHE_FILE,tokenizer,logger)
+
+    logger.info("🏋️  Starting training ...")
+
+    lm.train()
+    t_start = time.time()
+    t_step  = time.time()
+
+    for step in range(total_steps):
+
+        lr = learning_rate_schedule(step, **hyper_params["lr_schedule"])
+        for group in optimizer.param_groups:
+            group['lr'] = lr
+        X, y = data_loader(train_data,batch_size,context_length,device)
+
+        optimizer.zero_grad()
+        pred = lm(X,rope)
+        
+        pred = rearrange(
+            pred,
+            "batch_size seq_len vocab_size -> (batch_size seq_len) vocab_size",
+        )
+        y = rearrange(
+            y,
+            "batch_size seq_len -> (batch_size seq_len)",
+        )  
+        train_loss = cross_entropy(pred,y)
+        train_loss.backward()
+        grad_clipping(lm.parameters(),max_grad_norm)
+        optimizer.step()
+
+        step_time      = time.time() - t_step
+        t_step         = time.time()
+        tokens_per_sec = (batch_size * context_length) / max(step_time, 1e-9)
+        elapsed        = time.time() - t_start
+
+        logger.debug(
+            f"⚙️  step={step:>6}/{total_steps} "
+            f"train_loss={train_loss.item():.4f} "
+            f"lr={lr:.2e} "
+            f"tok/s={tokens_per_sec:,.0f} "
+            f"elapsed={elapsed:.1f}s"
+        )
+
+        if step % eval_interval == 0:
+            lm.eval()
+            with torch.no_grad():
+                val_loss = 0.0
+                for _ in range(eval_iters):
+                    X, y = data_loader(test_data, batch_size, context_length, device)
+                    pred = lm.forward(X,rope)
+                    pred = rearrange(
+                        pred,
+                        "batch_size seq_len vocab_size -> (batch_size seq_len) vocab_size",
+                    )
+                    y = rearrange(
+                        y,
+                        "batch_size seq_len -> (batch_size seq_len)",
+                    )
+
+                    val_loss += cross_entropy(pred,y).item()
+                ppl = torch.exp(torch.tensor(val_loss)).item()
+
+                logger.info(
+                    f"😎 step={step:>6}/{total_steps} "
+                    f"train_loss={train_loss.item():.4f} "
+                    f"val_loss={val_loss:.4f} "
+                    f"ppl={ppl:.2f} "
+                    f"lr={lr:.2e} "
+                    f"tok/s={tokens_per_sec:,.0f} "
+                    f"elapsed={elapsed:.1f}s"
+                )
+            lm.train()
+    
+    total_time = time.time() - t_start
+    logger.info(
+        f"🎉 Training complete! "
+        f"Total time: {time.strftime('%H:%M:%S', time.gmtime(total_time))}"
+    )
+
+if __name__ == "__main__":
+    main()
+ 
+
+
+
+        
