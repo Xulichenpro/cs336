@@ -3,6 +3,7 @@ import torch
 import logging
 import time
 import numpy as np
+import matplotlib.pyplot as plt
 
 from pathlib import Path
 from datetime import datetime
@@ -60,6 +61,32 @@ def setup_logger(name: str) -> logging.Logger:
 
     logger.info(f"Log file: {log_file}")
     return logger
+
+def draw_loss_curve(
+    train_losses:list,
+    val_losses:list
+):
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+
+    # 2. 绘制第一个子图：Train Loss
+    ax1.plot(train_losses, color='blue', label='Train Loss')
+    ax1.set_title('Training Loss')
+    ax1.set_xlabel('Epochs')
+    ax1.set_ylabel('Loss')
+    ax1.legend()
+    ax1.grid(True)
+
+    # 3. 绘制第二个子图：Val Loss
+    ax2.plot(val_losses, color='red', label='Val Loss')
+    ax2.set_title('Validation Loss')
+    ax2.set_xlabel('t')
+    ax2.set_ylabel('Loss')
+    ax2.legend()
+    ax2.grid(True)
+
+    # 4. 自动调整布局，防止子图之间的标签重叠
+    plt.tight_layout()
+    plt.show()
 
 def lazy_load(
     file_path:Path,
@@ -129,6 +156,9 @@ def main():
     t_start = time.time()
     t_step  = time.time()
 
+    train_losses = []
+    val_losses = []
+
     for step in range(total_steps):
 
         lr = learning_rate_schedule(step, **hyper_params["lr_schedule"])
@@ -152,6 +182,7 @@ def main():
         grad_clipping(lm.parameters(),max_grad_norm)
         optimizer.step()
 
+        train_losses.append(train_loss.item())
         step_time      = time.time() - t_step
         t_step         = time.time()
         tokens_per_sec = (batch_size * context_length) / max(step_time, 1e-9)
@@ -183,6 +214,7 @@ def main():
 
                     val_loss += cross_entropy(pred,y).item()
                 val_loss /= eval_iters
+                val_losses.append(val_loss.item())
                 ppl = torch.exp(torch.tensor(val_loss)).item()
 
                 logger.info(
@@ -194,6 +226,8 @@ def main():
                     f"tok/s={tokens_per_sec:,.0f} "
                     f"elapsed={elapsed:.1f}s"
                 )
+
+                draw_loss_curve(train_losses,val_losses)
             lm.train()
     
     total_time = time.time() - t_start
