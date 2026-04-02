@@ -102,17 +102,22 @@ def lazy_load(
         tokens_len = 0
             
         with open(file_path, 'rb') as f:
-            boundaries = find_chunk_boundaries(f, os.cpu_count(), b"<|endoftext|>")        
+            boundaries = find_chunk_boundaries(f,16, b"<|endoftext|>")        
             # 关键修改：以追加二进制模式 ('ab') 先打开缓存文件
             with open(cache_path, 'ab') as cache_f: 
                 for start, end in zip(boundaries[:-1], boundaries[1:]):
                     f.seek(start)
                     logger.info(f"⚙️  Reading from {file_path}...")
-                    chunk = f.read(end - start).decode("utf-8", errors="ignore")              
-                    tokens = np.array(tokenizer.encode(chunk), dtype=np.uint16)                  
-                    # 将文件句柄 cache_f 传给 tofile，实现追加
-                    tokens.tofile(cache_f)                    
-                    tokens_len += len(tokens)   
+                    chunk = f.read(end - start).decode("utf-8", errors="ignore") 
+                    chunks = tokenizer._split_by_special_keep(chunk)
+           
+                    for chunk in chunks: 
+                        tokens = tokenizer.encode(chunk)   
+                        tokens_len += len(tokens)      
+                        tokens = np.array(tokens, dtype=np.uint16)                  
+                            # 将文件句柄 cache_f 传给 tofile，实现追加
+                        tokens.tofile(cache_f)                    
+                          
                     logger.info(f"🧠 Have encoded {tokens_len} tokens")   
         # with open(file_path,'r') as f:
         #     text = f.read()
@@ -152,7 +157,7 @@ def main():
         MERGES_PATH,
         special_tokens=SPECIAL_TOKENS,
         logger = logger,
-        max_workers = os.cpu_count()
+        max_workers = 16,
     )
     lm = TransformerLM(
         device=device,
@@ -181,7 +186,7 @@ def main():
 
     train_losses = []
     val_losses = []
-
+   
     for step in range(total_steps):
 
         lr = learning_rate_schedule(step, **hyper_params["lr_schedule"])
@@ -196,10 +201,13 @@ def main():
             pred,
             "batch_size seq_len vocab_size -> (batch_size seq_len) vocab_size",
         )
+        
         y = rearrange(
             y,
             "batch_size seq_len -> (batch_size seq_len)",
-        )  
+        )
+
+        
         train_loss = cross_entropy(pred,y)
         train_loss.backward()
         grad_clipping(lm.parameters(),max_grad_norm)
@@ -237,7 +245,7 @@ def main():
 
                     val_loss += cross_entropy(pred,y).item()
                 val_loss /= eval_iters
-                val_losses.append(val_loss.item())
+                val_losses.append(val_loss)
                 ppl = torch.exp(torch.tensor(val_loss)).item()
 
                 logger.info(

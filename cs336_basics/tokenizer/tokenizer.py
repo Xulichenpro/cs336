@@ -1,5 +1,7 @@
 import regex as re
 import logging
+import multiprocessing as mp
+import itertools
 
 from typing import Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor,as_completed
@@ -54,21 +56,18 @@ class Tokenizer:
     def encode(self,text:str) -> list[int]:
         texts = self._split_by_special_keep(text)
         #print(texts)
-        bytes_stream = {}
-        res = []
+        #bytes_stream = {}
+        bytes_stream = []
 
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            futures = {
-                executor.submit(self.single_encode,text):id for id,text in enumerate(texts)
-            }
-
-            for future in as_completed(futures):
-                id = futures[future]
-                new_bytes = future.result()
-                bytes_stream[id] = new_bytes
-        for id in range(len(texts)):
-            res.extend(bytes_stream[id])
-        return res
+        ctx = mp.get_context("spawn")
+        with ctx.Pool(self.max_workers) as pool:
+            new_bytes_stream = pool.starmap(
+                self.single_encode,
+                [(text,) for text in texts]
+            )
+            bytes_stream.extend(itertools.chain.from_iterable(new_bytes_stream))
+        
+        return bytes_stream
     
     def encode_iterable(self, iterable: Iterable[str]) -> Iterator[int]:
         for text in iterable:

@@ -17,8 +17,8 @@ class AdamW(torch.optim.Optimizer):
         
         defaults = {
             "lr":lr,
-            "beta":betas,
-            "epsilon":eps,
+            "betas":betas,
+            "eps":eps,
             "weight_decay":weight_decay,
         }
 
@@ -30,8 +30,8 @@ class AdamW(torch.optim.Optimizer):
 
         for group in self.param_groups:
             alpha = group['lr']
-            beta1,beta2 = group['beta']
-            epsilon = group['epsilon']
+            beta1,beta2 = group['betas']
+            epsilon = group['eps']
             weight_decay = group['weight_decay']
 
             for p in group['params']:

@@ -17,6 +17,7 @@ class RoPE(nn.Module):
         self.d = d_k
         self.max_seq_len = max_seq_len
 
+    @torch.no_grad
     def forward(self,x:torch.Tensor,token_positions:torch.Tensor):
         res = torch.zeros_like(x,device=self.device)
 

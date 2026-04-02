@@ -42,8 +42,8 @@ def train_bpe(
             chunks.append(chunk)
 
     stats_cache_list = []
-    start = 0
-    ctx = mp.get_context("spawn")
+    start = 0   
+    ctx = mp.get_context("spawn") 
     
     with ctx.Pool(num_processes) as pool:
         new_stats_cache_list = pool.starmap(
