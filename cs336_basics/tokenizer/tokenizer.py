@@ -38,7 +38,7 @@ class Tokenizer:
 
     def encode(self,text:str) -> list[int]:
         texts = self._split_by_special_keep(text)
-        print(texts)
+        #print(texts)
         bytes_stream = {}
         res = []
 

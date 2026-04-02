@@ -28,12 +28,12 @@ RoPE:
   max_seq_len: 256
 
 AdamW:
-  lr: 1e-5
-  eps: 1e-5
-  weight_decay: 1e-4
+  lr: 1.0e-5
+  eps: 1.0e-5
+  weight_decay: 1.0e-4
 
 lr_schedule:
-  alpha_max: 1e-5
-  alpha_min: 1e-6
+  alpha_max: 1.0e-5
+  alpha_min: 1.0e-6
   T_omiga: 10000
   T_c: 20000

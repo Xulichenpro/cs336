@@ -8,13 +8,13 @@ from pathlib import Path
 from datetime import datetime
 from einops import rearrange
 
-from .tokenizer.tokenizer import Tokenizer
-from .block.rope_block import RoPE
-from .block.lm import TransformerLM
-from .train_utils.dataloader import data_loader
-from .train_utils.loss_fn import cross_entropy
-from .train_utils.optimizer import AdamW,grad_clipping,learning_rate_schedule
-from .train_utils.checkpoint_utils import save_checkpoint
+from tokenizer.tokenizer import Tokenizer
+from block.rope_block import RoPE
+from block.lm import TransformerLM
+from train_utils.dataloader import data_loader
+from train_utils.loss_fn import cross_entropy
+from train_utils.optimizer import AdamW,grad_clipping,learning_rate_schedule
+from train_utils.checkpoint_utils import save_checkpoint
 
 DATA_DIR = Path(__file__).parent / "data"
 TRAIN_FILE = DATA_DIR / "TinyStoriesV2-GPT4-train.txt"
