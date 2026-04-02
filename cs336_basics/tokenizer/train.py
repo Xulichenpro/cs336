@@ -148,6 +148,9 @@ def main():
     model_dir = Path(__file__).parent.parent / "model"
     model_dir.mkdir(parents=True,exist_ok=True)
     token2bytes,merges = train_bpe(FILE_PATH,VOCAB_SIZE,SPECIAL_TOKENS)
+
+    print(token2bytes,merges,sep='\n')
+    
     save_pkl(token2bytes,'vocab',model_dir / "vocab.pkl")
     save_pkl(merges,'merges', model_dir / 'merges.pkl')
 
