@@ -19,6 +19,7 @@ from train_utils.optimizer import AdamW,grad_clipping,learning_rate_schedule
 from train_utils.checkpoint_utils import save_checkpoint
 
 DATA_DIR = Path(__file__).parent / "data"
+DATA_SET = "TinyStoriesV2"
 TRAIN_FILE = DATA_DIR / "TinyStoriesV2-GPT4-train.txt"
 TEST_FILE = DATA_DIR / "TinyStoriesV2-GPT4-valid.txt"
 TRAIN_CACHE_FILE = DATA_DIR / "train.bin"
@@ -27,7 +28,9 @@ TEST_CACHE_FILE = DATA_DIR / "test.bin"
 MODEL_DIR = Path(__file__).parent / "model"
 VOCAB_PATH = MODEL_DIR / "vocab.pkl"
 MERGES_PATH = MODEL_DIR / "merges.pkl"
+WEIGHTS_DIR = MODEL_DIR / DATA_SET
 MODEL_DIR.mkdir(exist_ok=True,parents=True)
+WEIGHTS_DIR.mkdir(exist_ok=True,parents=True)
 
 SPECIAL_TOKENS = ["<|endoftext|>"]
 
@@ -109,11 +112,11 @@ def lazy_load(
         all_chunks = []
 
         with open(file_path, 'rb') as f:
+            logger.info(f"🛠️  Reading from {file_path}...")
             boundaries = find_chunk_boundaries(f,16, b"<|endoftext|>")        
             # 关键修改：以追加二进制模式 ('ab') 先打开缓存文件
             for start, end in zip(boundaries[:-1], boundaries[1:]):
-                f.seek(start)
-                logger.info(f"⚙️  Reading from {file_path}...")
+                f.seek(start)      
                 chunk = f.read(end - start).decode("utf-8", errors="ignore") 
                 chunks = tokenizer._split_by_special_keep(chunk)
                 all_chunks.extend(chunks)
@@ -202,61 +205,89 @@ def main():
     train_losses = []
     val_losses = []
     
-    for step in range(total_steps):
-        lr = learning_rate_schedule(step, **hyper_params["lr_schedule"])
-        for group in optimizer.param_groups:
-            group['lr'] = lr
-        
-        X, y = data_loader(train_data,batch_size,context_length,device)
-        optimizer.zero_grad()
-        pred = lm(X,rope)
-        
-        train_loss = cross_entropy(pred,y)
-        train_loss.backward()
-        grad_clipping(lm.parameters(),max_grad_norm)
-        optimizer.step()
+    try:
+        for step in range(total_steps):
+            lr = learning_rate_schedule(step + 1, **hyper_params["lr_schedule"])
+            for group in optimizer.param_groups:
+                group['lr'] = lr
+            
+            X, y = data_loader(train_data,batch_size,context_length,device)
+            optimizer.zero_grad()
+            pred = lm(X,rope)
+            
+            train_loss = cross_entropy(pred,y)
+            train_loss.backward()
+            grad_clipping(lm.parameters(),max_grad_norm)
+            optimizer.step()
 
-        train_losses.append(train_loss.item())
-        step_time      = time.time() - t_step
-        t_step         = time.time()
-        tokens_per_sec = (batch_size * context_length) / max(step_time, 1e-9)
-        elapsed        = time.time() - t_start
+            train_losses.append(train_loss.item())
+            step_time      = time.time() - t_step
+            t_step         = time.time()
+            tokens_per_sec = (batch_size * context_length) / max(step_time, 1e-9)
+            elapsed        = time.time() - t_start
 
-        logger.debug(
-            f"⚙️  step={step:>6}/{total_steps} "
-            f"train_loss={train_loss.item():.4f} "
-            f"lr={lr:.2e} "
-            f"tok/s={tokens_per_sec:,.0f} "
-            f"elapsed={elapsed:.1f}s"
+            logger.debug(
+                f"⚙️  step={step:>6}/{total_steps} "
+                f"train_loss={train_loss.item():.4f} "
+                f"lr={lr:.2e} "
+                f"tok/s={tokens_per_sec:,.0f} "
+                f"elapsed={elapsed:.1f}s"
+            )
+
+            if step % eval_interval == 0:
+                lm.eval()
+                with torch.no_grad():
+                    val_loss = 0.0
+                    for _ in range(eval_iters):
+                        X, y = data_loader(test_data, batch_size, context_length, device)
+                        pred = lm.forward(X,rope)
+
+                        val_loss += cross_entropy(pred,y).item()
+                    val_loss /= eval_iters
+                    val_losses.append(val_loss)
+                    ppl = torch.exp(torch.tensor(val_loss)).item()
+
+                    logger.info(
+                        f"😎 step={step:>6}/{total_steps} "
+                        f"train_loss={train_loss.item():.4f} "
+                        f"val_loss={val_loss:.4f} "
+                        f"ppl={ppl:.2f} "
+                        f"lr={lr:.2e} "
+                        f"tok/s={tokens_per_sec:,.0f} "
+                        f"elapsed={elapsed:.1f}s"
+                    )   
+                lm.train()
+
+            if step % 1000 == 0:
+                draw_loss_curve(train_losses,val_losses)
+            if step + 1 == hyper_params["lr_schedule"]["T_omiga"] or step + 1 == hyper_params["lr_schedule"]["T_c"]:
+                save_checkpoint(
+                    lm,
+                    optimizer,
+                    step + 1,
+                    WEIGHTS_DIR / f"lm_{step + 1}"
+                )
+                logger.info("💾 Save checkpoints for our model!")
+
+    except Exception as e:
+        logger.warning(f"🛑 Unexcepted exception happens!\n{e}")
+        save_checkpoint(
+            lm,
+            optimizer,
+            step + 1,
+            WEIGHTS_DIR / f"lm_exception"
         )
-
-        if step % eval_interval == 0:
-            lm.eval()
-            with torch.no_grad():
-                val_loss = 0.0
-                for _ in range(eval_iters):
-                    X, y = data_loader(test_data, batch_size, context_length, device)
-                    pred = lm.forward(X,rope)
-
-                    val_loss += cross_entropy(pred,y).item()
-                val_loss /= eval_iters
-                val_losses.append(val_loss)
-                ppl = torch.exp(torch.tensor(val_loss)).item()
-
-                logger.info(
-                    f"😎 step={step:>6}/{total_steps} "
-                    f"train_loss={train_loss.item():.4f} "
-                    f"val_loss={val_loss:.4f} "
-                    f"ppl={ppl:.2f} "
-                    f"lr={lr:.2e} "
-                    f"tok/s={tokens_per_sec:,.0f} "
-                    f"elapsed={elapsed:.1f}s"
-                )   
-            lm.train()
-        if step % 1000 == 0:
-            draw_loss_curve(train_losses,val_losses)
+        logger.info("💾 Save checkpoints for our model!")
+        
     
     total_time = time.time() - t_start
+    save_checkpoint(
+        lm,
+        optimizer,
+        total_steps,
+        WEIGHTS_DIR / f"lm_{total_steps}"
+    )
+    logger.info("💾 Save checkpoints for our model!")
     logger.info(
         f"🎉 Training complete! "
         f"Total time: {time.strftime('%H:%M:%S', time.gmtime(total_time))}"
