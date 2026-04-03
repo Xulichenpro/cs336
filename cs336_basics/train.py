@@ -3,6 +3,7 @@ import torch
 import logging
 import time
 import numpy as np
+import multiprocessing as mp
 import matplotlib.pyplot as plt
 
 from pathlib import Path
@@ -88,6 +89,15 @@ def draw_loss_curve(
     plt.tight_layout()
     plt.show()
 
+_worker_tokenizer = None
+
+def _init_worker(tokenizer):
+    global _worker_tokenizer
+    _worker_tokenizer = tokenizer  # 每个子进程只初始化一次
+
+def _worker_encode(text: str) -> list[int]:
+    return _worker_tokenizer.encode(text)
+
 def lazy_load(
     file_path:Path,
     cache_path:Path,
@@ -96,27 +106,36 @@ def lazy_load(
 ) -> np.memmap:
     if not cache_path.exists():
         logger.info(f"✏️  Tokenizing {file_path.name} → {cache_path.name} ...")
-        
-        tokens_len = 0
-            
+        all_chunks = []
+
         with open(file_path, 'rb') as f:
             boundaries = find_chunk_boundaries(f,16, b"<|endoftext|>")        
             # 关键修改：以追加二进制模式 ('ab') 先打开缓存文件
-            with open(cache_path, 'ab') as cache_f: 
-                for start, end in zip(boundaries[:-1], boundaries[1:]):
-                    f.seek(start)
-                    logger.info(f"⚙️  Reading from {file_path}...")
-                    chunk = f.read(end - start).decode("utf-8", errors="ignore") 
-                    chunks = tokenizer._split_by_special_keep(chunk)
-           
-                    for chunk in chunks: 
-                        tokens = tokenizer.encode(chunk)   
-                        tokens_len += len(tokens)      
-                        tokens = np.array(tokens, dtype=np.uint16)                  
-                            # 将文件句柄 cache_f 传给 tofile，实现追加
-                        tokens.tofile(cache_f)                    
-                          
-                        logger.info(f"🧠 Have encoded {tokens_len} tokens")   
+            for start, end in zip(boundaries[:-1], boundaries[1:]):
+                f.seek(start)
+                logger.info(f"⚙️  Reading from {file_path}...")
+                chunk = f.read(end - start).decode("utf-8", errors="ignore") 
+                chunks = tokenizer._split_by_special_keep(chunk)
+                all_chunks.extend(chunks)
+                                           
+        ctx = mp.get_context("spawn")
+        with ctx.Pool(
+            processes=tokenizer.max_workers,
+            initializer=_init_worker,          # 子进程只初始化一次 tokenizer
+            initargs=(tokenizer,)
+        ) as pool:
+            results = pool.imap(
+                _worker_encode,
+                all_chunks,
+                chunksize=50                   # 批量传输，减少通信次数
+            )
+
+            tokens_len = 0
+            with open(cache_path, 'ab') as cache_f:
+                for tokens in results:
+                    arr = np.array(tokens, dtype=np.uint16)
+                    arr.tofile(cache_f)
+                    tokens_len += len(tokens)  
    
         logger.info(f"💾 Saved {tokens_len:,} tokens to {cache_path.name}")
     else:

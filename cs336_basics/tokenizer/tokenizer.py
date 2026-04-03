@@ -55,19 +55,10 @@ class Tokenizer:
 
     def encode(self,text:str) -> list[int]:
         texts = self._split_by_special_keep(text)
-        #print(texts)
-        #bytes_stream = {}
-        bytes_stream = []
-
-        ctx = mp.get_context("spawn")
-        with ctx.Pool(self.max_workers) as pool:
-            new_bytes_stream = pool.starmap(
-                self.single_encode,
-                [(text,) for text in texts]
-            )
-            bytes_stream.extend(itertools.chain.from_iterable(new_bytes_stream))
-        
-        return bytes_stream
+        result = []
+        for t in texts:
+            result.extend(self.single_encode(t))
+        return result
     
     def encode_iterable(self, iterable: Iterable[str]) -> Iterator[int]:
         for text in iterable:
