@@ -1,4 +1,3 @@
-import os
 import yaml
 import torch
 import logging
@@ -8,7 +7,6 @@ import matplotlib.pyplot as plt
 
 from pathlib import Path
 from datetime import datetime
-from einops import rearrange
 
 from tokenizer.tokenizer import Tokenizer
 from tokenizer.pretokenizer import find_chunk_boundaries
@@ -118,9 +116,7 @@ def lazy_load(
                             # 将文件句柄 cache_f 传给 tofile，实现追加
                         tokens.tofile(cache_f)                    
                           
-                    logger.info(f"🧠 Have encoded {tokens_len} tokens")   
-        # with open(file_path,'r') as f:
-        #     text = f.read()
+                        logger.info(f"🧠 Have encoded {tokens_len} tokens")   
    
         logger.info(f"💾 Saved {tokens_len:,} tokens to {cache_path.name}")
     else:
@@ -186,27 +182,15 @@ def main():
 
     train_losses = []
     val_losses = []
-   
+    
     for step in range(total_steps):
-
         lr = learning_rate_schedule(step, **hyper_params["lr_schedule"])
         for group in optimizer.param_groups:
             group['lr'] = lr
+        
         X, y = data_loader(train_data,batch_size,context_length,device)
-
         optimizer.zero_grad()
         pred = lm(X,rope)
-        
-        pred = rearrange(
-            pred,
-            "batch_size seq_len vocab_size -> (batch_size seq_len) vocab_size",
-        )
-        
-        y = rearrange(
-            y,
-            "batch_size seq_len -> (batch_size seq_len)",
-        )
-
         
         train_loss = cross_entropy(pred,y)
         train_loss.backward()
@@ -234,14 +218,6 @@ def main():
                 for _ in range(eval_iters):
                     X, y = data_loader(test_data, batch_size, context_length, device)
                     pred = lm.forward(X,rope)
-                    pred = rearrange(
-                        pred,
-                        "batch_size seq_len vocab_size -> (batch_size seq_len) vocab_size",
-                    )
-                    y = rearrange(
-                        y,
-                        "batch_size seq_len -> (batch_size seq_len)",
-                    )
 
                     val_loss += cross_entropy(pred,y).item()
                 val_loss /= eval_iters
@@ -258,7 +234,6 @@ def main():
                     f"elapsed={elapsed:.1f}s"
                 )   
             lm.train()
-        
         if step % 1000 == 0:
             draw_loss_curve(train_losses,val_losses)
     

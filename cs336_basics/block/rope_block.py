@@ -17,14 +17,14 @@ class RoPE(nn.Module):
         self.d = d_k
         self.max_seq_len = max_seq_len
 
-    @torch.no_grad
     def forward(self,x:torch.Tensor,token_positions:torch.Tensor):
         res = torch.zeros_like(x,device=self.device)
 
         for i in range(self.d // 2):
-            theta = token_positions / math.pow(self.theta,2 * i / self.d)
-            sin = torch.sin(theta)
-            cos = torch.cos(theta)
+            with torch.no_grad():
+                theta = token_positions / math.pow(self.theta,2 * i / self.d)
+                sin = torch.sin(theta)
+                cos = torch.cos(theta)
             res[...,2 * i] = cos * x[...,2 * i] - sin * x[...,2 * i + 1]
             res[...,2 * i + 1] = sin * x[...,2 * i] + cos * x[...,2 * i + 1]
         

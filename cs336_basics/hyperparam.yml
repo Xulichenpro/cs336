@@ -1,6 +1,6 @@
-batch_size: 4
-context_length: 16
-max_grad_norm: 1
+batch_size: 64
+context_length: 256
+max_grad_norm: 1.0
 eval_interval: 10
 eval_iters: 5
 
@@ -11,13 +11,13 @@ train_bpe:
   num_processes: 16
 
 data_loader:
-  context_length: 16
-  batch_size: 4
+  context_length: 256
+  batch_size: 32
 
 TransformerLM:
   vocab_size: 10000
-  context_length: 16
-  num_layers: 2
+  context_length: 256
+  num_layers: 4
   d_model: 512
   num_heads: 16
   d_ff: 1344
@@ -25,15 +25,15 @@ TransformerLM:
 RoPE:
   theta: 10000
   d_k: 32
-  max_seq_len: 16
+  max_seq_len: 256
 
 AdamW:
-  lr: 1.0e-5
+  lr: 6.0e-4
   eps: 1.0e-6
-  weight_decay: 1.0e-6
+  weight_decay: 0.01
 
 lr_schedule:
-  alpha_max: 1.0e-5
-  alpha_min: 1.0e-6
-  T_omiga: 100
-  T_c: 300
+  alpha_max: 6.0e-4
+  alpha_min: 3.0e-5
+  T_omiga: 10000
+  T_c: 20000
